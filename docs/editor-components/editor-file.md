@@ -3,7 +3,7 @@
 The Editor File API provides functionality to create, manage, interact with files/tabs in the Acode editor. It handles file operations, state management, editor session control, custom editor tab, etc.
 
 ::: tip
-This API is defined in the [Acode source code (src/lib/editorFile.js)](https://github.com/Acode-Foundation/Acode/blob/52bf3a59c4aebe422d8cfdecf5c85191ed6f6004/src/lib/editorFile.js).
+This API is defined in the [Acode source code (src/lib/editorFile.js)](https://github.com/Acode-Foundation/Acode/blob/228a339296a3869fff7ff84e0898378a438931b8/src/lib/editorFile.js).
 :::
 
 ## Import
@@ -46,12 +46,18 @@ Both methods are equivalent and accept & return the same parameters.
 | cursorPos | `object` | Cursor position | - |
 | scrollLeft | `number` | Scroll left position | - |
 | scrollTop | `number` | Scroll top position | - |
-| folds | [`Array<Fold>`](https://ajaxorg.github.io/ace-api-docs/classes/src_edit_session_fold.Fold.html) | Code folds | - |
+| folds | `Array<{ fromLine: number, fromCol: number, toLine: number, toCol: number }>` | Code folds | - |
 | type | `string` | Type of content (e.g., 'editor') | `'editor'` |
 | tabIcon | `string` | Icon class for the file tab | `'file file_type_default'` |
 | content | string \|  [HTMLElement](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement) | Custom content element or HTML string. Strings are sanitized using DOMPurify | - |
 | stylesheets | `string\|string[]` | Custom stylesheets for tab. Can be URL, or CSS string | - |
+| highlightStyles | `boolean` | Adopt the static CodeMirror highlight stylesheet into this custom tab's shadow root. Use only when the tab will render `codeHighlight` HTML. Available from **versionCode `1008`** | `false` |
 | hideQuickTools | `boolean` | Whether to hide quicktools for this tab | `false` |
+| pinned | `boolean` | Pin the tab to prevent accidental closing | `false` |
+| readOnly | `boolean` | Open the file as read-only | `false` |
+| paneId | `string` | Target editor pane id (multi-pane layout) | - |
+| pane | `object` | Target editor pane instance (multi-pane layout) | - |
+| isPanePlaceholder | `boolean` | Temporary empty tab for an empty pane | `false` |
 
 ## Properties
 
@@ -68,6 +74,7 @@ Both methods are equivalent and accept & return the same parameters.
 | uri | `string` | File location on the device |
 | eol | `'windows' \| 'unix'` | End of line character |
 | editable | `boolean` | Whether file can be edited |
+| pinned | `boolean` | Whether the file is pinned |
 | isUnsaved | `boolean` | Whether file has unsaved changes |
 | name | `string` | File name (for plugin compatibility) |
 | cacheFile | `string` | Cache file URL |
@@ -76,7 +83,7 @@ Both methods are equivalent and accept & return the same parameters.
 | SAFMode | `'single' \| 'tree' \| null` | Storage access framework mode |
 | loaded | `boolean` | Whether file has completed loading text |
 | loading | `boolean` | Whether file is still loading text |
-| session | `AceAjax.IEditSession` | EditSession of the file |
+| session | `Proxy<EditorState>` | Session state with Ace-compatible helper methods |
 | readOnly | `boolean` | Whether file is readonly |
 | markChanged | `boolean` | Whether to mark changes when session text changes |
 
@@ -90,6 +97,7 @@ Both methods are equivalent and accept & return the same parameters.
 | uri | `string` | Set file location |
 | eol | `'windows' \| 'unix'` | Set end of line character |
 | editable | `boolean` | Set file editability |
+| pinned   | `boolean` | Set file pinned state |
 | readOnly | `boolean` | Set file readonly state |
 
 ## Methods
@@ -110,11 +118,18 @@ Saves the file to a new location.
 await file.saveAs();
 ```
 
-#### [remove(force = false)](#removeforce--false)
+#### [remove(force = false, options = { ignorePinned = false, silentPinned = false })](#removeforce--false)
 Removes and closes the file.
 
 ```js
 await file.remove(true); // Force close without save prompt
+
+// Attempt to close a pinned tab, bypassing the pinned check
+// Attempt to close a pinned tab, bypassing the pinned check
+await file.remove(false, { ignorePinned: true });
+
+// Attempt to close a pinned tab silently (toast suppressed)
+await file.remove(false, { silentPinned: true });
 ```
 
 #### [makeActive()](#makeactive)
@@ -129,6 +144,24 @@ Removes active state from the file.
 
 ```js
 file.removeActive();
+```
+
+#### [setPinnedState(value: boolean, options = { reorder = false, emit = true })](#setpinnedstate)
+Updates Pinned State for the file, triggers reorder (if true), emits Events (editorManager `update` event with `pin-tab` as the first argument and affected File - second argument )
+
+```js
+file.setPinnedState(false, {})
+
+editorManager.on("update", (action, file) => {
+    if(action === "pin-tab") doSomething();
+});
+```
+
+#### [togglePinned()](#togglepinned)
+Toggles the pinned State of the file
+
+```js
+file.togglePinned();
 ```
 
 ### Editor Operations
@@ -298,8 +331,26 @@ file1.addStyle('/styles/additional.css');
 ```
 
 ::: warning
-Custom Editor Tabs are isolated from main dom using shadow dom, so don't select tab elements using main DOM(`document`).
+Custom Editor Tabs are isolated from main DOM using Shadow DOM, so don't select tab elements using `document`.
 :::
+
+Syntax highlighting inside a custom tab is opt-in and available from **versionCode `1008`**. Set `highlightStyles: true` so the tab's shadow root gets the theme stylesheet, then add the `cm-highlighted` class to the wrapper. See [Code Highlight](../utilities/code-highlight.md).
+
+```js
+const codeHighlight = acode.require("codeHighlight");
+const html = await codeHighlight.highlightCodeBlock(source, "javascript");
+
+const code = document.createElement("code");
+code.className = codeHighlight.HIGHLIGHT_CLASS;
+code.innerHTML = html;
+
+new EditorFile("snippet.js", {
+  type: "custom",
+  content: code,
+  highlightStyles: true,
+  hideQuickTools: true,
+});
+```
 
 ### Saving File Changes
 
